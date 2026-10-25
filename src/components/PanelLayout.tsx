@@ -1,15 +1,7 @@
-/**
- * Cascaron de los paneles: barra superior, navegacion por rol y logout.
- *
- * Un solo layout para los cuatro paneles. La navegacion se arma a partir del rol
- * y no al revés: cada panel declara que puede mostrar, y el cascaron dibuja los
- * tabs. Si el menu estuviera hardcodeado por pantalla, cada alta de un panel
- * obligaria a tocar el cascaron.
- */
+/** Navegación común de los paneles de paciente y personal clínico. */
 
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-
 import {
   CalendarDays,
   ClipboardList,
@@ -33,13 +25,6 @@ interface Seccion {
   icono: typeof LayoutDashboard
 }
 
-/**
- * Que ve cada rol.
- *
- * Es una lista, no una condicion por tab, para que agregar una pantalla sea
- * agregar una linea. El backend igual es la autoridad: esto solo evita mostrar
- * tabs que devolverian 403.
- */
 const SECCIONES: Record<Rol, Seccion[]> = {
   admin: [
     { id: 'resumen', label: 'Resumen', icono: LayoutDashboard },
@@ -48,7 +33,7 @@ const SECCIONES: Record<Rol, Seccion[]> = {
     { id: 'profesionales', label: 'Profesionales', icono: Users },
     { id: 'agenda', label: 'Agenda', icono: CalendarDays },
     { id: 'consultas', label: 'Consultas', icono: ListChecks },
-    { id: 'cola', label: 'Cola', icono: ClipboardList },
+    { id: 'cola', label: 'Cola de espera', icono: ClipboardList },
   ],
   recepcion: [
     { id: 'resumen', label: 'Resumen', icono: LayoutDashboard },
@@ -56,7 +41,7 @@ const SECCIONES: Record<Rol, Seccion[]> = {
     { id: 'agenda', label: 'Agenda', icono: CalendarDays },
     { id: 'disponibles', label: 'Disponibles', icono: Stethoscope },
     { id: 'consultas', label: 'Consultas', icono: ListChecks },
-    { id: 'cola', label: 'Cola', icono: ClipboardList },
+    { id: 'cola', label: 'Cola de espera', icono: ClipboardList },
   ],
   medico: [
     { id: 'agenda', label: 'Mi agenda', icono: CalendarDays },
@@ -85,9 +70,9 @@ export default function PanelLayout({
 
   const secciones = usuario ? (SECCIONES[usuario.rol] ?? []) : []
   const etiquetaActual = secciones.find((s) => s.id === seccion)?.label
+  const nombre = usuario?.nombre || usuario?.email || 'Usuario'
+  const inicial = nombre.trim().charAt(0).toLocaleUpperCase('es-AR') || 'U'
 
-  // El título de la pestaña del navegador dice dónde estás ("Clínica · Urgencias").
-  // Sirve cuando hay varias pestañas abiertas y para el historial.
   useEffect(() => {
     document.title = etiquetaActual ? `Clínica · ${etiquetaActual}` : 'Clínica'
   }, [etiquetaActual])
@@ -107,7 +92,6 @@ export default function PanelLayout({
 
   return (
     <div className="min-h-screen">
-      {/* Para quien navega con teclado: salta el menú y va directo al contenido. */}
       <a
         href="#contenido"
         className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-40 focus:rounded-md focus:px-3 focus:py-1.5 focus:text-sm"
@@ -115,71 +99,80 @@ export default function PanelLayout({
       >
         Saltar al contenido
       </a>
-      <header
-        className="sticky top-0 z-10 border-b"
-        style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
-      >
-        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2.5">
-          <div className="min-w-0">
-            <div className="text-sm font-semibold">Clínica</div>
-            <div className="truncate text-xs" style={{ color: 'var(--color-text-muted)' }}>
-              {usuario.nombre || usuario.email} · {usuario.rol_display}
-            </div>
+
+      <header className="clinic-header">
+        <div className="clinic-header-inner">
+          <div className="clinic-header-brand">
+            <span className="clinic-brand-mark">
+              <HeartPulse size={20} aria-hidden="true" />
+            </span>
+            <span>
+              <span className="clinic-brand-name">Clínica</span>
+              <span className="clinic-brand-caption">Portal de atención</span>
+            </span>
           </div>
 
-          <div className="ml-auto flex items-center gap-2">
-            <BotonTema />
+          <div className="clinic-header-tools">
+            <div className="clinic-user-chip">
+              <span className="clinic-user-avatar" aria-hidden="true">{inicial}</span>
+              <span className="min-w-0">
+                <span className="clinic-user-name block">{nombre}</span>
+                <span className="clinic-user-role block">{usuario.rol_display}</span>
+              </span>
+            </div>
+            <BotonTema className="clinic-header-action" />
             <button
               type="button"
               onClick={() => navegar('/cambiar-contrasena')}
-              className="btn-ghost flex items-center gap-1.5"
+              className="clinic-header-action"
               title="Cambiar contraseña"
             >
-              <KeyRound size={15} aria-hidden="true" />
-              <span className="hidden sm:inline">Contraseña</span>
+              <KeyRound size={16} aria-hidden="true" />
+              <span>Contraseña</span>
             </button>
             <button
               type="button"
               onClick={handleLogout}
               disabled={saliendo}
-              className="btn-ghost flex items-center gap-1.5"
+              className="clinic-header-action"
             >
-              <LogOut size={15} aria-hidden="true" />
-              {saliendo ? 'Saliendo...' : 'Salir'}
+              <LogOut size={16} aria-hidden="true" />
+              <span>{saliendo ? 'Saliendo…' : 'Salir'}</span>
             </button>
           </div>
         </div>
-
-        <nav className="mx-auto max-w-6xl px-2 pb-1" aria-label="Secciones del panel">
-          <ul className="flex gap-1 overflow-x-auto">
-            {secciones.map((s) => {
-              const Icono = s.icono
-              const activo = seccion === s.id
-              return (
-                <li key={s.id}>
-                  <button
-                    type="button"
-                    onClick={() => onSeccion(s.id)}
-                    aria-current={activo ? 'page' : undefined}
-                    className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium whitespace-nowrap"
-                    style={{
-                      color: activo ? 'var(--color-surface)' : 'var(--color-text-muted)',
-                      backgroundColor: activo ? 'var(--color-accent)' : 'transparent',
-                    }}
-                  >
-                    <Icono size={14} aria-hidden="true" />
-                    {s.label}
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        </nav>
       </header>
 
-      <main id="contenido" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-5 outline-none">
-        <div className="page-enter flex flex-col gap-4">{children}</div>
-      </main>
+      <div className="clinic-workspace">
+        <aside className="clinic-sidebar">
+          <p className="clinic-sidebar-label">Secciones</p>
+          <nav aria-label="Secciones del panel">
+            <ul className="clinic-nav-list">
+              {secciones.map((s) => {
+                const Icono = s.icono
+                const activo = seccion === s.id
+                return (
+                  <li key={s.id}>
+                    <button
+                      type="button"
+                      onClick={() => onSeccion(s.id)}
+                      aria-current={activo ? 'page' : undefined}
+                      className="clinic-nav-button"
+                    >
+                      <Icono size={17} aria-hidden="true" />
+                      <span>{s.label}</span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </nav>
+        </aside>
+
+        <main id="contenido" tabIndex={-1} className="clinic-main outline-none">
+          <div className="clinic-main-inner page-enter flex flex-col gap-5">{children}</div>
+        </main>
+      </div>
     </div>
   )
 }

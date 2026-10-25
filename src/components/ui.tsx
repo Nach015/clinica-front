@@ -80,7 +80,7 @@ export function Card({
 }) {
   return (
     <section
-      className="rounded-xl border p-4"
+      className="panel-card"
       style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
     >
       {titulo && (
@@ -111,15 +111,10 @@ export function Metrica({
   etiqueta: string
   tono?: 'neutro' | 'acento' | 'alerta'
 }) {
-  const color = tono === 'alerta' ? 'var(--color-danger)' : tono === 'acento' ? 'var(--color-accent)' : undefined
   return (
-    <div className="rounded-lg border px-3 py-2" style={{ borderColor: 'var(--color-border)' }}>
-      <div className="text-xl font-semibold tabular-nums" style={color ? { color } : undefined}>
-        {valor}
-      </div>
-      <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-        {etiqueta}
-      </div>
+    <div className={`metric-card metric-card--${tono}`}>
+      <div className="metric-value tabular-nums">{valor}</div>
+      <div className="metric-label">{etiqueta}</div>
     </div>
   )
 }
@@ -132,22 +127,7 @@ export function Metrica({
  * un rojo de un verde.
  */
 export function Badge({ children, tono = 'neutro' }: { children: ReactNode; tono?: 'neutro' | 'info' | 'exito' | 'peligro' | 'acento' }) {
-  const colores = {
-    neutro: { bg: 'var(--color-bg)', fg: 'var(--color-text-muted)' },
-    info: { bg: 'var(--color-accent)', fg: 'var(--color-surface)' },
-    exito: { bg: 'var(--color-success-bg)', fg: 'var(--color-success)' },
-    peligro: { bg: 'var(--color-danger-bg)', fg: 'var(--color-danger)' },
-    acento: { bg: 'var(--color-accent)', fg: 'var(--color-surface)' },
-  }[tono]
-
-  return (
-    <span
-      className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap"
-      style={{ backgroundColor: colores.bg, color: colores.fg }}
-    >
-      {children}
-    </span>
-  )
+  return <span className={`status-badge status-badge--${tono}`}>{children}</span>
 }
 
 /** Estado vacio con accion opcional. */
@@ -194,7 +174,7 @@ export function Cargando({ filas = 3 }: { filas?: number }) {
 export function Tabla({ children }: { children: ReactNode }) {
   return (
     <div className="-mx-1 overflow-x-auto px-1">
-      <table className="w-full text-sm">{children}</table>
+      <table className="data-table w-full text-sm">{children}</table>
     </div>
   )
 }
@@ -259,18 +239,13 @@ export function BotonChico({
   type?: 'button' | 'submit'
   title?: string
 }) {
-  const activo = tono === 'peligro' ? 'var(--color-danger)' : tono === 'exito' ? 'var(--color-success)' : undefined
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className="rounded-md border px-2 py-1 text-xs font-medium disabled:opacity-50"
-      style={{
-        borderColor: activo ?? 'var(--color-border)',
-        color: activo,
-      }}
+      className={`btn-row btn-row--${tono} disabled:opacity-50`}
     >
       {children}
     </button>
@@ -281,7 +256,7 @@ export function BotonChico({
 export function BarraFiltros({ children }: { children: ReactNode }) {
   return (
     <div
-      className="flex flex-wrap items-end gap-2 rounded-lg border p-3"
+      className="filter-bar flex flex-wrap items-end gap-2 rounded-lg border p-3"
       style={{ borderColor: 'var(--color-border)' }}
     >
       {children}

@@ -3,7 +3,7 @@ import { Moon, Sun } from 'lucide-react'
 import { useTema } from '../lib/useTema'
 
 /** Botón para pasar de modo claro a oscuro. */
-export default function BotonTema() {
+export default function BotonTema({ className = "" }: { className?: string }) {
   const [tema, alternar] = useTema()
   const oscuro = tema === 'oscuro'
 
@@ -11,7 +11,7 @@ export default function BotonTema() {
     <button
       type="button"
       onClick={alternar}
-      className="btn-ghost flex items-center gap-1.5"
+      className={`btn-ghost theme-toggle ${className}`}
       aria-label={oscuro ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
       title={oscuro ? 'Modo claro' : 'Modo oscuro'}
     >
