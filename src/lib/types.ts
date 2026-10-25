@@ -43,7 +43,7 @@ export interface Usuario {
 
 export interface Tokens {
   access: string
-  refresh: string
+  refresh?: string
 }
 
 export interface RespuestaSesion {

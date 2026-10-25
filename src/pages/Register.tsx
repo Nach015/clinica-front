@@ -4,7 +4,18 @@ import { Link, useNavigate } from 'react-router-dom'
 import AuthLayout from '../components/AuthLayout'
 import { Aviso, Campo, Spinner } from '../components/ui'
 import { api } from '../lib/api'
+import { mensajeDeError } from '../lib/errores'
 import { ApiError, type RespuestaRegistro } from '../lib/types'
+import {
+  hayErrores,
+  soloConError,
+  validarConfirmacion,
+  validarEmail,
+  validarNombre,
+  validarPassword,
+  validarTelefono,
+  validarTexto,
+} from '../lib/validaciones'
 
 export default function Register() {
   const navigate = useNavigate()
@@ -25,19 +36,33 @@ export default function Register() {
   async function enviar(e: FormEvent) {
     e.preventDefault()
     setError(null)
-    setErrores({})
 
-    if (password !== passwordConfirm) {
-      setErrores({ passwordConfirm: 'Las contraseñas no coinciden.' })
+    // Todos los campos se revisan juntos, así el usuario ve TODOS sus errores de
+    // una vez y no uno por intento.
+    const encontrados = {
+      nombre: validarNombre(nombre),
+      email: validarEmail(email),
+      telefono: validarTelefono(telefono),
+      password: validarPassword(password),
+      passwordConfirm: validarConfirmacion(passwordConfirm, password),
+      ficha_alergias: validarTexto(alergias, { etiqueta: 'las alergias (si no tenés, escribí Ninguna)', max: 500 }),
+      ficha_enfermedades_cronicas: validarTexto(cronicas, {
+        etiqueta: 'las enfermedades crónicas (si no tenés, escribí Ninguna)',
+        max: 500,
+      }),
+    }
+    if (hayErrores(encontrados)) {
+      setErrores(soloConError(encontrados))
       return
     }
 
+    setErrores({})
     setCargando(true)
     try {
       const data = await api.post<RespuestaRegistro>('/api/auth/register', {
-        nombre,
-        email,
-        telefono,
+        nombre: nombre.trim(),
+        email: email.trim(),
+        telefono: telefono.trim(),
         password,
         password_confirm: passwordConfirm,
         // La ficha de salud es obligatoria: el back la rechaza si falta.
@@ -60,13 +85,13 @@ export default function Register() {
           email: err.mensajePorCampo('email') ?? '',
           telefono: err.mensajePorCampo('telefono') ?? '',
           password: err.mensajePorCampo('password') ?? '',
-          password_confirm: err.mensajePorCampo('password_confirm') ?? '',
+          passwordConfirm: err.mensajePorCampo('password_confirm') ?? '',
           ficha_alergias: err.mensajePorCampo('ficha_alergias') ?? '',
           ficha_enfermedades_cronicas:
             err.mensajePorCampo('ficha_enfermedades_cronicas') ?? '',
         })
       } else {
-        setError('No se pudo conectar con el servidor.')
+        setError(mensajeDeError(err, 'No se pudo crear la cuenta. Probá de nuevo.'))
       }
     } finally {
       setCargando(false)
@@ -158,11 +183,14 @@ export default function Register() {
           />
         </Campo>
 
-        <fieldset className="flex flex-col gap-4 border-t border-zinc-200 pt-4">
-          <legend className="text-sm font-medium text-zinc-700">
+        <fieldset
+          className="flex flex-col gap-4 border-t pt-4"
+          style={{ borderColor: 'var(--color-border)' }}
+        >
+          <legend className="text-sm font-medium" style={{ color: 'var(--color-text-heading)' }}>
             Ficha de salud
           </legend>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
             La necesitamos para atenderte bien. Si no tenés nada, escribí
             &quot;Ninguna&quot;. Queda registrada y la ve el profesional que te
             atiende.

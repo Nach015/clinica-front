@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { ApiError } from '../lib/types'
+import { mensajeDeError } from './errores'
 
 export interface EstadoCarga<T> {
   datos: T | null
@@ -57,7 +57,7 @@ export function useCarga<T>(cargar: () => Promise<T>, deps: unknown[] = []): Est
       if (!vigente.current) return
       // Los 401 los maneja `api.ts` refrescando el token; si llegamos aca es
       // que la sesion murio de verdad y RutaPrivada va a redirigir.
-      setError(e instanceof ApiError ? e.message : 'No se pudo conectar con el servidor.')
+      setError(mensajeDeError(e, 'No se pudo cargar la información. Probá de nuevo.'))
     } finally {
       if (vigente.current) setCargando(false)
     }
@@ -88,7 +88,7 @@ export function useAccion<TArgs extends unknown[], TResult>(
       try {
         return await accion(...args)
       } catch (e) {
-        setError(e instanceof ApiError ? e.message : 'No se pudo completar la operación.')
+        setError(mensajeDeError(e))
         return undefined
       } finally {
         setWorking(false)

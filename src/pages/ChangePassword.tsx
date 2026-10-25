@@ -5,7 +5,15 @@ import AuthLayout from '../components/AuthLayout'
 import { Aviso, Campo, Spinner } from '../components/ui'
 import { useAuth } from '../context/useAuth'
 import { api } from '../lib/api'
+import { mensajeDeError } from '../lib/errores'
 import { ApiError } from '../lib/types'
+import {
+  hayErrores,
+  soloConError,
+  validarConfirmacion,
+  validarObligatorio,
+  validarPassword,
+} from '../lib/validaciones'
 
 export default function ChangePassword() {
   const navigate = useNavigate()
@@ -21,13 +29,20 @@ export default function ChangePassword() {
   async function enviar(e: FormEvent) {
     e.preventDefault()
     setError(null)
-    setErrores({})
 
-    if (nueva !== confirmacion) {
-      setErrores({ nuevaConfirmacion: 'Las contraseñas no coinciden.' })
+    const encontrados = {
+      actual: validarObligatorio(actual, 'Escribí tu contraseña actual.'),
+      nueva:
+        validarPassword(nueva) ??
+        (nueva === actual ? 'La contraseña nueva tiene que ser distinta a la actual.' : undefined),
+      nuevaConfirmacion: validarConfirmacion(confirmacion, nueva),
+    }
+    if (hayErrores(encontrados)) {
+      setErrores(soloConError(encontrados))
       return
     }
 
+    setErrores({})
     setCargando(true)
     try {
       await api.post('/api/auth/change-password', {
@@ -45,7 +60,7 @@ export default function ChangePassword() {
           nuevaConfirmacion: err.mensajePorCampo('new_password_confirm') ?? '',
         })
       } else {
-        setError('No se pudo conectar con el servidor.')
+        setError(mensajeDeError(err, 'No se pudo cambiar la contraseña. Probá de nuevo.'))
       }
     } finally {
       setCargando(false)

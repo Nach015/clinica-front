@@ -13,6 +13,7 @@
  */
 
 import { getAccessToken, limpiarUsuario, setAccessToken } from './session'
+import { PRIORIDAD_URGENTE } from './urgencias'
 import {
   ApiError,
   type Bloqueo,
@@ -40,8 +41,36 @@ const API_URL = import.meta.env.VITE_API_URL ?? ''
 
 const REFRESH_PATH = '/api/auth/refresh'
 
+/**
+ * Rutas que se usan SIN sesión. Un 401 ahí no significa "la sesión venció" sino
+ * "los datos están mal" (ejemplo: contraseña incorrecta en el login), así que no
+ * hay que intentar renovar el token ni mostrar "Tu sesión venció".
+ */
+const RUTAS_PUBLICAS = [REFRESH_PATH, '/api/auth/login', '/api/auth/register', '/api/auth/verify-email', '/api/auth/resend-code']
+
+function esRutaPublica(path: string): boolean {
+  return RUTAS_PUBLICAS.some((ruta) => path.startsWith(ruta))
+}
+
 /** Promesa del refresh en curso, para no disparar N refresh a la vez. */
 let refreshEnCurso: Promise<boolean> | null = null
+
+/**
+ * Texto en español para los errores HTTP que el usuario no puede arreglar
+ * escribiendo otra cosa. Se usa cuando el back no manda un `detail` propio, y
+ * SIEMPRE para los 5xx: ahí el texto del back puede traer detalles técnicos que
+ * no le sirven a nadie en pantalla.
+ */
+export function mensajeHttp(status: number, code?: string): string | undefined {
+  if (code === 'throttled' || status === 429) {
+    return 'Hiciste demasiados intentos seguidos. Esperá unos minutos y volvé a probar.'
+  }
+  if (status >= 500) return 'El servidor tuvo un problema. Probá de nuevo en unos minutos.'
+  if (status === 403) return 'No tenés permiso para hacer esto.'
+  if (status === 404) return 'No encontramos lo que buscabas. Puede que ya no exista.'
+  if (status === 409) return 'Lo que querés hacer entra en conflicto con el estado actual. Actualizá la pantalla e intentá de nuevo.'
+  return undefined
+}
 
 async function leerError(response: Response): Promise<ApiError> {
   let body: { code?: string; detail?: string; errors?: Record<string, string[]> } = {}
@@ -53,7 +82,12 @@ async function leerError(response: Response): Promise<ApiError> {
 
   const errores = body.errors ?? {}
   const primerDetalle = Object.values(errores).flat()[0]
-  const detail = body.detail ?? primerDetalle ?? `Error ${response.status}`
+  const amigable = mensajeHttp(response.status, body.code)
+
+  // Los 5xx y el throttling siempre usan el texto amigable; el resto prefiere
+  // lo que dijo el back, que conoce mejor el motivo.
+  const forzarAmigable = response.status >= 500 || response.status === 429 || body.code === 'throttled'
+  const detail = (forzarAmigable ? amigable : undefined) ?? body.detail ?? primerDetalle ?? amigable ?? `Error ${response.status}`
 
   return new ApiError(response.status, body.code ?? 'error', detail, errores)
 }
@@ -102,19 +136,27 @@ export async function apiFetch<T>(path: string, { body, sinRefresh, ...options }
   }
   if (token) headers.Authorization = `Bearer ${token}`
 
-  const response = await fetch(`${API_URL}${path}`, {
-    ...options,
-    credentials: 'include',
-    headers,
-    body:
-      body === undefined
-        ? undefined
-        : body instanceof FormData || typeof body === 'string'
-          ? body
-          : JSON.stringify(body),
-  })
+  let response: Response
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      ...options,
+      credentials: 'include',
+      headers,
+      body:
+        body === undefined
+          ? undefined
+          : body instanceof FormData || typeof body === 'string'
+            ? body
+            : JSON.stringify(body),
+    })
+  } catch {
+    // `fetch` solo falla (en vez de devolver un status) cuando no hubo
+    // respuesta: servidor caido, sin internet o bloqueado. Se normaliza a un
+    // ApiError con status 0 para que toda la app lo trate igual.
+    throw new ApiError(0, 'network_error', 'No se pudo conectar con el servidor. Revisá tu conexión e intentá de nuevo.')
+  }
 
-  if (response.status === 401 && !sinRefresh && !path.startsWith(REFRESH_PATH)) {
+  if (response.status === 401 && !sinRefresh && !esRutaPublica(path)) {
     if (await pedirRefresh()) {
       return apiFetch<T>(path, { body, sinRefresh: true, ...options })
     }
@@ -219,6 +261,14 @@ export const clinica = {
   agendarDesdeCola: (id: number, inicio: string) =>
     api.post<{ entrada: EntradaCola; turno: Turno }>(`/api/cola/${id}/agendar`, { inicio }),
   salirDeCola: (id: number) => api.delete<void>(`/api/cola/${id}`),
+  /**
+   * Alta de una urgencia por parte del personal: una entrada de cola con
+   * prioridad alta para el paciente indicado.
+   * NOTA para el back: ver `docs/BACK_PENDIENTE.md` (el POST tiene que aceptar
+   * `paciente` y `prioridad` cuando quien lo manda es personal de la clínica).
+   */
+  registrarUrgencia: (body: { paciente: string; especialidad: number; medico?: number; nota: string }) =>
+    api.post<EntradaCola>('/api/cola', { ...body, prioridad: PRIORIDAD_URGENTE }),
 
   buscarPacientes: (q: string) =>
     api.get<PacienteBusqueda[]>(`/api/pacientes?q=${encodeURIComponent(q)}`),

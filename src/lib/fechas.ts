@@ -103,13 +103,17 @@ export function formatearDiaRelativo(iso: string): string {
 
 /** `hace 5 minutos`, `en 3 días`. */
 export function formatearRelativo(iso: string): string {
-  const delta = (new Date(iso).getTime() - Date.now()) / 1000
+  const delta = (new Date(iso).getTime() - Date.now()) / 1000 // segundos
   const fmt = new Intl.RelativeTimeFormat(LOCALE, { numeric: 'auto' })
-  const abs = (unidad: Intl.RelativeTimeFormatUnit) => fmt.format(Math.round(delta), unidad)
-  if (Math.abs(delta) < 60) return abs('second')
-  if (Math.abs(delta) < 3600) return abs('minute')
-  if (Math.abs(delta) < 86_400) return abs('hour')
-  if (Math.abs(delta) < 2_592_000) return abs('day')
+  // `Intl` espera la cantidad YA expresada en la unidad que se le pasa. Antes se
+  // le daba siempre el valor en segundos, y 27 minutos salía como "hace 1.628
+  // minutos". Por eso se divide por los segundos que tiene cada unidad.
+  const en = (segundosPorUnidad: number, unidad: Intl.RelativeTimeFormatUnit) =>
+    fmt.format(Math.round(delta / segundosPorUnidad), unidad)
+  if (Math.abs(delta) < 60) return en(1, 'second')
+  if (Math.abs(delta) < 3600) return en(60, 'minute')
+  if (Math.abs(delta) < 86_400) return en(3600, 'hour')
+  if (Math.abs(delta) < 2_592_000) return en(86_400, 'day')
   return formatearFecha(iso)
 }
 

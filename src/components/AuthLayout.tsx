@@ -3,6 +3,8 @@
 import { Link } from 'react-router-dom'
 import type { ReactNode } from 'react'
 
+import BotonTema from './BotonTema'
+
 export default function AuthLayout({
   titulo,
   subtitulo,
@@ -16,6 +18,9 @@ export default function AuthLayout({
 }) {
   return (
     <div className="flex min-h-screen items-center justify-center px-4 py-10">
+      <div className="fixed top-3 right-3">
+        <BotonTema />
+      </div>
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <Link

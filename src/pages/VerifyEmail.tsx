@@ -6,7 +6,9 @@ import AuthLayout from '../components/AuthLayout'
 import { Aviso, Campo, Spinner } from '../components/ui'
 import { useAuth } from '../context/useAuth'
 import { api } from '../lib/api'
-import { ApiError, type RespuestaSesion } from '../lib/types'
+import { mensajeDeError } from '../lib/errores'
+import type { RespuestaSesion } from '../lib/types'
+import { validarCodigo, validarEmail } from '../lib/validaciones'
 
 const LARGO_CODIGO = 6
 
@@ -38,17 +40,24 @@ export default function VerifyEmail() {
   async function enviar(e: FormEvent) {
     e.preventDefault()
     setError(null)
+
+    const problema = validarEmail(email) ?? validarCodigo(codigo, LARGO_CODIGO)
+    if (problema) {
+      setError(problema)
+      return
+    }
+
     setCargando(true)
     try {
       const data = await api.post<RespuestaSesion>('/api/auth/verify-email', {
-        email,
+        email: email.trim(),
         code: codigo,
       })
       // Verificar ya abre sesión: el back devuelve los tokens.
       iniciarSesion(data)
       navigate('/app', { replace: true })
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo conectar con el servidor.')
+      setError(mensajeDeError(err, 'No se pudo verificar el código. Probá de nuevo.'))
       setCodigo('')
       inputCodigo.current?.focus()
     } finally {
@@ -58,12 +67,17 @@ export default function VerifyEmail() {
 
   async function reenviar() {
     setError(null)
+    const problema = validarEmail(email)
+    if (problema) {
+      setError(problema)
+      return
+    }
     try {
-      const data = await api.post<{ dev_code?: string | null }>('/api/auth/resend-code', { email })
+      const data = await api.post<{ dev_code?: string | null }>('/api/auth/resend-code', { email: email.trim() })
       setSegundosParaReenviar(60)
       if (data.dev_code) setCodigo(data.dev_code)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'No se pudo reenviar el código.')
+      setError(mensajeDeError(err, 'No se pudo reenviar el código.'))
     }
   }
 

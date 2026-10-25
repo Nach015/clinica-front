@@ -1,10 +1,22 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>clinica_front</title>
+    <title>Clínica</title>
+    <!--
+      Aplica el modo oscuro ANTES de que se dibuje la página. Si se hiciera
+      recién desde React, quien eligió oscuro vería un destello blanco al cargar.
+    -->
+    <script>
+      try {
+        var t = localStorage.getItem('clinica_tema')
+        if (t === 'oscuro' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark')
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -10,8 +10,11 @@
 import { useState } from 'react'
 
 import { Aviso, Card, Cargando, Metrica } from '../components/ui'
+import { useToast } from '../context/useToast'
 import { clinica } from '../lib/api'
+import { mensajeDeError } from '../lib/errores'
 import { formatearRelativo, formatearRango, sumarMinutos } from '../lib/fechas'
+import { hayErrores, soloConError, validarTexto } from '../lib/validaciones'
 import { useAccion, useCarga } from '../lib/useCarga'
 import { useConfirmacion } from '../lib/usePanel'
 import { ApiError } from '../lib/types'
@@ -212,7 +215,7 @@ function SeccionPedirTurno() {
       if (e instanceof ApiError && e.status === 409) {
         setPuedeEsperar(Number(especialidadId))
       } else {
-        setError(e instanceof ApiError ? e.message : 'No se pudo pedir el turno.')
+        setError(mensajeDeError(e, 'No se pudo pedir el turno.'))
       }
     } finally {
       setSolicitando(false)
@@ -259,6 +262,7 @@ function SeccionPedirTurno() {
                 type="date"
                 className="field-input"
                 value={fecha}
+                min={aInputHoy()}
                 onChange={(e) => {
                   setFecha(e.target.value)
                   setHorario('')
@@ -304,6 +308,11 @@ function SeccionPedirTurno() {
 
           {cargandoEsp && <span className="text-xs">Cargando especialidades...</span>}
 
+          <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+            Si es una urgencia, no pidas turno por acá: acercate a la clínica o avisale a recepción, que
+            te atiende primero.
+          </p>
+
           {opciones.length === 0 && especialidadId && !cargandoDisp && (
             <Aviso>
               No hay horarios libres para esa especialidad ese día. Probá con otra fecha o entrá a
@@ -317,7 +326,7 @@ function SeccionPedirTurno() {
           <div className="flex justify-end">
             <button
               type="submit"
-              className="btn-primary"
+              className="btn-primary btn-auto"
               disabled={solicitando || !especialidadId || !horario}
             >
               {solicitando ? 'Pidiendo...' : 'Pedir turno'}
@@ -365,7 +374,7 @@ function ColaDeEspera({
       <div className="mt-3 flex justify-end">
         <button
           type="button"
-          className="btn-primary"
+          className="btn-primary btn-auto"
           onClick={entrar}
           disabled={entrando || !especialidadId}
         >
@@ -384,20 +393,51 @@ function SeccionFicha() {
   const { datos, cargando, recargar } = useCarga<FichaMedica>(() => clinica.miFicha(), [])
   const [editando, setEditando] = useState(false)
   const [borrador, setBorrador] = useState<FichaMedica | null>(null)
+  const [errores, setErrores] = useState<Record<string, string>>({})
+  const toast = useToast()
+
+  // Antes el guardado no tenía manejo de errores: si el servidor fallaba, el
+  // botón "Guardar" parecía no hacer nada. Ahora el error se muestra.
+  const [guardar, guardando, errorGuardar] = useAccion(async (ficha: FichaMedica) => {
+    await clinica.editarFicha({
+      alergias: ficha.alergias.trim(),
+      enfermedades_cronicas: ficha.enfermedades_cronicas.trim(),
+      medicacion: (ficha.medicacion ?? '').trim(),
+      observaciones: (ficha.observaciones ?? '').trim(),
+    })
+    toast.mostrar('exito', 'Ficha guardada. Un profesional la va a revisar.')
+    setEditando(false)
+    setBorrador(null)
+    await recargar()
+  })
 
   if (cargando) return <Cargando filas={4} />
   if (!datos) return <Aviso>No encontramos tu ficha médica. Contactá a recepción.</Aviso>
 
-  async function guardar() {
+  function intentarGuardar() {
     if (!borrador) return
-    await clinica.editarFicha({
-      alergias: borrador.alergias,
-      enfermedades_cronicas: borrador.enfermedades_cronicas,
-      medicacion: borrador.medicacion,
-      observaciones: borrador.observaciones,
-    })
-    setEditando(false)
-    await recargar()
+    const encontrados = {
+      alergias: validarTexto(borrador.alergias, {
+        etiqueta: 'las alergias (si no tenés, escribí Ninguna)',
+        max: 500,
+      }),
+      enfermedades_cronicas: validarTexto(borrador.enfermedades_cronicas, {
+        etiqueta: 'las enfermedades crónicas (si no tenés, escribí Ninguna)',
+        max: 500,
+      }),
+      medicacion: validarTexto(borrador.medicacion ?? '', { etiqueta: 'la medicación', max: 500, obligatorio: false }),
+      observaciones: validarTexto(borrador.observaciones ?? '', {
+        etiqueta: 'las observaciones',
+        max: 500,
+        obligatorio: false,
+      }),
+    }
+    if (hayErrores(encontrados)) {
+      setErrores(soloConError(encontrados))
+      return
+    }
+    setErrores({})
+    void guardar(borrador)
   }
 
   const campos: { clave: keyof FichaMedica; etiqueta: string; obligatorio?: boolean }[] = [
@@ -419,6 +459,7 @@ function SeccionFicha() {
               className="btn-ghost"
               onClick={() => {
                 setBorrador({ ...datos })
+                setErrores({})
                 setEditando(true)
               }}
             >
@@ -454,15 +495,25 @@ function SeccionFicha() {
                 </label>
                 <textarea
                   id={`ficha-${campo.clave}`}
-                  className="field-input min-h-16"
+                  className={`field-input min-h-16 ${errores[campo.clave] ? 'field-input-error' : ''}`}
                   value={String(borrador[campo.clave] ?? '')}
-                  onChange={(e) => setBorrador({ ...borrador, [campo.clave]: e.target.value })}
+                  maxLength={500}
+                  onChange={(e) => {
+                    setBorrador({ ...borrador, [campo.clave]: e.target.value })
+                    setErrores((previos) => ({ ...previos, [campo.clave]: '' }))
+                  }}
                 />
+                {errores[campo.clave] && (
+                  <p className="mt-1 text-xs" style={{ color: 'var(--color-danger)' }}>
+                    {errores[campo.clave]}
+                  </p>
+                )}
               </div>
             ))}
             <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
               Al guardar, la ficha vuelve a quedar sin verificar hasta que un profesional la revise.
             </p>
+            {errorGuardar && <Aviso>{errorGuardar}</Aviso>}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
@@ -470,12 +521,13 @@ function SeccionFicha() {
                 onClick={() => {
                   setEditando(false)
                   setBorrador(null)
+                  setErrores({})
                 }}
               >
                 Cancelar
               </button>
-              <button type="button" className="btn-primary" onClick={guardar}>
-                Guardar
+              <button type="button" className="btn-primary btn-auto" onClick={intentarGuardar} disabled={guardando}>
+                {guardando ? 'Guardando...' : 'Guardar'}
               </button>
             </div>
           </div>
@@ -504,37 +556,50 @@ function SeccionFicha() {
 
 function SeccionConsultasPaciente() {
   const [mensaje, setMensaje] = useState('')
+  const [errorMensaje, setErrorMensaje] = useState<string | undefined>()
+  const toast = useToast()
 
   const { datos, cargando, recargar } = useCarga<Consulta[]>(() => clinica.consultas(), [])
 
   const [enviar, enviando, error] = useAccion(async () => {
-    await clinica.crearConsulta(mensaje)
+    await clinica.crearConsulta(mensaje.trim())
+    toast.mostrar('exito', 'Consulta enviada. Recepción te va a responder.')
     setMensaje('')
     await recargar()
   })
+
+  function intentarEnviar() {
+    const problema = validarTexto(mensaje, { etiqueta: 'la consulta', min: 5, max: 1000 })
+    setErrorMensaje(problema)
+    if (!problema) void enviar()
+  }
 
   return (
     <>
       <Card titulo="Escribir una consulta">
         <textarea
-          className="field-input min-h-24"
+          className={`field-input min-h-24 ${errorMensaje ? 'field-input-error' : ''}`}
           value={mensaje}
-          onChange={(e) => setMensaje(e.target.value)}
+          maxLength={1000}
+          onChange={(e) => {
+            setMensaje(e.target.value)
+            setErrorMensaje(undefined)
+          }}
           placeholder="Escribí tu consulta para recepción..."
           aria-label="Consulta"
         />
+        {errorMensaje && (
+          <p className="mt-1 text-xs" style={{ color: 'var(--color-danger)' }}>
+            {errorMensaje}
+          </p>
+        )}
         {error && (
           <div className="mt-2">
             <Aviso>{error}</Aviso>
           </div>
         )}
         <div className="mt-2 flex justify-end">
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={() => enviar()}
-            disabled={enviando || !mensaje.trim()}
-          >
+          <button type="button" className="btn-primary btn-auto" onClick={intentarEnviar} disabled={enviando}>
             {enviando ? 'Enviando...' : 'Enviar'}
           </button>
         </div>

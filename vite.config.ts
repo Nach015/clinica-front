@@ -1,6 +1,7 @@
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig, loadEnv } from 'vite'
+import { loadEnv } from 'vite'
+import { defineConfig } from 'vitest/config'
 
 // El front habla con el back en /api, y Vite lo reenvía al Django en el 8000.
 // Así el navegador ve todo same-origin y no hay ni CORS ni preflight: la cookie
@@ -16,6 +17,14 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), tailwindcss()],
+    // Pruebas automáticas (`pnpm test`). jsdom simula un navegador dentro de Node.
+    test: {
+      environment: 'jsdom',
+      setupFiles: ['./src/test/setup.ts'],
+      include: ['src/**/*.test.{ts,tsx}'],
+      css: false,
+      restoreMocks: true,
+    },
     server: {
       port,
       strictPort: false,

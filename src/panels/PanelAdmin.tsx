@@ -24,8 +24,20 @@ import {
   Th,
   Vacio,
 } from '../components/ui'
+import { useToast } from '../context/useToast'
 import { DIAS_SEMANA, aInputDate, diaSemanaDe, formatearRelativo } from '../lib/fechas'
 import { clinica } from '../lib/api'
+import {
+  hayErrores,
+  soloConError,
+  validarDuracion,
+  validarEmail,
+  validarMatricula,
+  validarNoPasado,
+  validarObligatorio,
+  validarRangoHorario,
+  validarTexto,
+} from '../lib/validaciones'
 import { useAccion, useCarga } from '../lib/useCarga'
 import { useConfirmacion } from '../lib/usePanel'
 import type {
@@ -37,9 +49,13 @@ import type {
   Usuario,
 } from '../lib/types'
 import { AccionesDePersonal, ListaCola, ListaConsultas, TablaTurnos } from './comunes'
+import { AlertaUrgencias, SeccionUrgencias } from './SeccionUrgencias'
+import { PRIORIDAD_NORMAL, PRIORIDAD_URGENTE, esUrgente } from '../lib/urgencias'
 
 export default function PanelAdmin({ seccion }: { seccion: string }) {
   switch (seccion) {
+    case 'urgencias':
+      return <SeccionUrgencias />
     case 'especialidades':
       return <SeccionEspecialidades />
     case 'profesionales':
@@ -69,6 +85,8 @@ function SeccionResumen() {
 
   return (
     <>
+      <AlertaUrgencias />
+
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         <Metrica valor={datos.usuarios ?? 0} etiqueta="Usuarios" />
         <Metrica valor={datos.especialidades ?? 0} etiqueta="Especialidades" tono="acento" />
@@ -148,46 +166,55 @@ function SeccionEspecialidades() {
   const [nombre, setNombre] = useState('')
   const [descripcion, setDescripcion] = useState('')
   const [duracion, setDuracion] = useState('30')
-  const [errorForm, setErrorForm] = useState<string | null>(null)
+  const [errores, setErrores] = useState<Record<string, string>>({})
+  const toast = useToast()
 
   const { datos, cargando, recargar } = useCarga<Especialidad[]>(() => clinica.especialidades(true), [])
 
   const [crear, creando, errorCrear] = useAccion(async () => {
     await clinica.crearEspecialidad({
-      nombre,
-      descripcion,
-      duracion_turno_minutos: Number(duracion) || 30,
+      nombre: nombre.trim(),
+      descripcion: descripcion.trim(),
+      duracion_turno_minutos: Number(duracion),
     })
+    toast.mostrar('exito', `Especialidad "${nombre.trim()}" creada.`)
     setNombre('')
     setDescripcion('')
     await recargar()
   })
 
-  const [toggle, toggleando] = useAccion(async (especialidad: Especialidad) => {
+  const [toggle, toggleando, errorToggle] = useAccion(async (especialidad: Especialidad) => {
     await clinica.actualizarEspecialidad(especialidad.id, { activa: !especialidad.activa })
     await recargar()
   })
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault()
-    setErrorForm(null)
-    if (!nombre.trim()) {
-      setErrorForm('Escribí el nombre de la especialidad.')
+    const encontrados = {
+      nombre: validarTexto(nombre, { etiqueta: 'el nombre de la especialidad', min: 3, max: 80 }),
+      duracion: validarDuracion(duracion),
+    }
+    if (hayErrores(encontrados)) {
+      setErrores(soloConError(encontrados))
       return
     }
+    setErrores({})
     await crear()
   }
 
   return (
     <>
       <Card titulo="Nueva especialidad" descripcion="Cada especialidad define cuánto dura un turno.">
-        <form onSubmit={enviar} className="grid gap-3 sm:grid-cols-[1fr_1fr_8rem_auto] sm:items-end">
-          <Campo id="esp-nombre" label="Nombre" error={errorForm ?? undefined}>
+        <form onSubmit={enviar} className="grid gap-3 sm:grid-cols-[1fr_1fr_8rem_auto] sm:items-end" noValidate>
+          <Campo id="esp-nombre" label="Nombre" error={errores.nombre || undefined}>
             <input
               id="esp-nombre"
-              className="field-input"
+              className={`field-input ${errores.nombre ? 'field-input-error' : ''}`}
               value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
+              onChange={(e) => {
+                setNombre(e.target.value)
+                setErrores((previos) => ({ ...previos, nombre: '' }))
+              }}
               placeholder="Cardiología"
               maxLength={80}
             />
@@ -202,25 +229,28 @@ function SeccionEspecialidades() {
               maxLength={200}
             />
           </Campo>
-          <Campo id="esp-dur" label="Duración (min)">
+          <Campo id="esp-dur" label="Duración (min)" error={errores.duracion || undefined}>
             <input
               id="esp-dur"
-              className="field-input"
+              className={`field-input ${errores.duracion ? 'field-input-error' : ''}`}
               type="number"
               min={10}
               max={240}
               step={5}
               value={duracion}
-              onChange={(e) => setDuracion(e.target.value)}
+              onChange={(e) => {
+                setDuracion(e.target.value)
+                setErrores((previos) => ({ ...previos, duracion: '' }))
+              }}
             />
           </Campo>
-          <button type="submit" className="btn-primary" disabled={creando}>
+          <button type="submit" className="btn-primary btn-auto" disabled={creando}>
             {creando ? 'Guardando...' : 'Crear'}
           </button>
         </form>
-        {errorCrear && (
+        {(errorCrear ?? errorToggle) && (
           <div className="mt-2">
-            <Aviso>{errorCrear}</Aviso>
+            <Aviso>{errorCrear ?? errorToggle}</Aviso>
           </div>
         )}
       </Card>
@@ -412,60 +442,84 @@ function FormAltaMedico({
   const [email, setEmail] = useState('')
   const [matricula, setMatricula] = useState('')
   const [especialidad, setEspecialidad] = useState('')
-  const [exito, setExito] = useState<string | null>(null)
+  const [errores, setErrores] = useState<Record<string, string>>({})
+  const toast = useToast()
 
   const [crear, creando, error] = useAccion(async () => {
     await clinica.crearMedico({
-      email,
-      matricula,
+      email: email.trim(),
+      matricula: matricula.trim(),
       especialidad: Number(especialidad),
     })
-    setExito(`${email} ahora es profesional.`)
+    toast.mostrar('exito', `${email.trim()} ahora es profesional.`)
     setEmail('')
     setMatricula('')
     setEspecialidad('')
     await alGuardar()
   })
 
+  function limpiar(campo: string) {
+    setErrores((previos) => ({ ...previos, [campo]: '' }))
+  }
+
   return (
     <form
+      noValidate
       onSubmit={(e) => {
         e.preventDefault()
-        setExito(null)
+        const encontrados = {
+          email: validarEmail(email),
+          matricula: validarMatricula(matricula),
+          especialidad: validarObligatorio(especialidad, 'Elegí una especialidad.'),
+        }
+        if (hayErrores(encontrados)) {
+          setErrores(soloConError(encontrados))
+          return
+        }
+        setErrores({})
         void crear()
       }}
-      className="grid gap-3 sm:grid-cols-[1fr_10rem_1fr_auto] sm:items-end"
+      className="grid gap-3 sm:grid-cols-[1fr_10rem_1fr_auto] sm:items-start"
     >
       <Campo
         id="med-email"
         label="Email de una cuenta existente"
         hint="El paciente primero se registra solo; después se lo promueve."
-        error={error ?? undefined}
+        error={errores.email || undefined}
       >
         <input
           id="med-email"
           type="email"
-          className="field-input"
+          className={`field-input ${errores.email ? 'field-input-error' : ''}`}
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => {
+            setEmail(e.target.value)
+            limpiar('email')
+          }}
           placeholder="medico@correo.com"
         />
       </Campo>
-      <Campo id="med-mat" label="Matrícula">
+      <Campo id="med-mat" label="Matrícula" error={errores.matricula || undefined}>
         <input
           id="med-mat"
-          className="field-input"
+          className={`field-input ${errores.matricula ? 'field-input-error' : ''}`}
           value={matricula}
-          onChange={(e) => setMatricula(e.target.value)}
+          onChange={(e) => {
+            setMatricula(e.target.value)
+            limpiar('matricula')
+          }}
           maxLength={64}
         />
       </Campo>
-      <Campo id="med-esp" label="Especialidad">
+      <Campo id="med-esp" label="Especialidad" error={errores.especialidad || undefined}>
         <select
           id="med-esp"
-          className="field-input"
+          className={`field-input ${errores.especialidad ? 'field-input-error' : ''}`}
           value={especialidad}
-          onChange={(e) => setEspecialidad(e.target.value)}
+          onChange={(e) => {
+            setEspecialidad(e.target.value)
+            limpiar('especialidad')
+          }}
         >
           <option value="">Elegir...</option>
           {especialidades
@@ -477,16 +531,12 @@ function FormAltaMedico({
             ))}
         </select>
       </Campo>
-      <button
-        type="submit"
-        className="btn-primary"
-        disabled={creando || !email.trim() || !matricula.trim() || !especialidad}
-      >
+      <button type="submit" className="btn-primary btn-auto sm:mt-6" disabled={creando}>
         {creando ? 'Creando...' : 'Dar de alta'}
       </button>
-      {exito && (
+      {error && (
         <div className="sm:col-span-4">
-          <Aviso tipo="exito">{exito}</Aviso>
+          <Aviso>{error}</Aviso>
         </div>
       )}
     </form>
@@ -501,7 +551,7 @@ function EditorAgenda({ medico, alCambiar }: { medico: Medico; alCambiar: () => 
   const { datos: tramos, cargando } = useCarga(() => clinica.agenda(medico.id), [medico.id])
   const { datos: bloqueos } = useCarga(() => clinica.bloqueos(medico.id), [medico.id])
 
-  const [agregar, agregando] = useAccion(async () => {
+  const [agregar, agregando, errorAgregar] = useAccion(async () => {
     // El backend espera HH:MM:SS. Mandar "09:00" lo rechaza, y el mensaje de
     // error no dice nada del formato, asi que se arma acá.
     await clinica.crearAgenda(medico.id, {
@@ -512,7 +562,7 @@ function EditorAgenda({ medico, alCambiar }: { medico: Medico; alCambiar: () => 
     await alCambiar()
   })
 
-  const [quitar, quitando] = useAccion(async (agendaId: number) => {
+  const [quitar, quitando, errorQuitar] = useAccion(async (agendaId: number) => {
     await clinica.borrarAgenda(medico.id, agendaId)
     await alCambiar()
   })
@@ -561,19 +611,21 @@ function EditorAgenda({ medico, alCambiar }: { medico: Medico; alCambiar: () => 
         </div>
         <button
           type="button"
-          className="btn-primary"
+          className="btn-primary btn-auto"
           onClick={() => agregar()}
-          disabled={agregando || desde >= hasta}
-          title={desde >= hasta ? 'La hora de fin tiene que ser posterior.' : undefined}
+          disabled={agregando || Boolean(validarRangoHorario(desde, hasta))}
+          title={validarRangoHorario(desde, hasta)}
         >
           {agregando ? 'Guardando...' : 'Agregar tramo'}
         </button>
-        {agregando === false && desde >= hasta && (
+        {!agregando && validarRangoHorario(desde, hasta) && (
           <span className="text-xs" style={{ color: 'var(--color-danger)' }}>
-            La hora de fin tiene que ser posterior a la de inicio.
+            {validarRangoHorario(desde, hasta)}
           </span>
         )}
       </div>
+
+      {(errorAgregar ?? errorQuitar) && <Aviso>{errorAgregar ?? errorQuitar}</Aviso>}
 
       <div>
         <h3 className="mb-1.5 text-xs font-medium" style={{ color: 'var(--color-text-muted)' }}>
@@ -646,7 +698,7 @@ export function SeccionAgenda() {
     [fecha, estado],
   )
 
-  const [cambiar, cambiando] = useAccion(async (turno: Turno, nuevo: EstadoTurno) => {
+  const [cambiar, cambiando, errorCambiar] = useAccion(async (turno: Turno, nuevo: EstadoTurno) => {
     await clinica.cambiarEstadoTurno(turno.id, nuevo)
     await recargar()
   })
@@ -688,6 +740,8 @@ export function SeccionAgenda() {
         <BotonChico onClick={() => recargar(true)}>Actualizar</BotonChico>
       </BarraFiltros>
 
+      {errorCambiar && <Aviso>{errorCambiar}</Aviso>}
+
       <Card titulo={`Turnos del ${fecha}`}>
         <TablaTurnos
           turnos={datos?.results ?? []}
@@ -714,6 +768,8 @@ export function SeccionConsultas() {
   const [filtro, setFiltro] = useState<'abierta' | 'respondida' | ''>('abierta')
   const [respondiendo, setRespondiendo] = useState<number | null>(null)
   const [texto, setTexto] = useState('')
+  const [errorTexto, setErrorTexto] = useState<string | undefined>()
+  const toast = useToast()
 
   const { datos, cargando, recargar } = useCarga(
     () => clinica.consultas(filtro || undefined),
@@ -721,11 +777,19 @@ export function SeccionConsultas() {
   )
 
   const [responder, respondiendo_, errorResponder] = useAccion(async (id: number) => {
-    await clinica.responderConsulta(id, texto)
+    await clinica.responderConsulta(id, texto.trim())
+    toast.mostrar('exito', 'Respuesta enviada.')
     setRespondiendo(null)
     setTexto('')
     await recargar()
   })
+
+  /** Se valida antes de enviar: una consulta se responde UNA sola vez. */
+  function intentarResponder(id: number) {
+    const problema = validarTexto(texto, { etiqueta: 'la respuesta', min: 3, max: 2000 })
+    setErrorTexto(problema)
+    if (!problema) void responder(id)
+  }
 
   return (
     <>
@@ -761,12 +825,16 @@ export function SeccionConsultas() {
             className="mt-3 rounded-lg border p-3"
             style={{ borderColor: 'var(--color-border)' }}
           >
-            <Campo id="cq-resp" label="Respuesta">
+            <Campo id="cq-resp" label="Respuesta" error={errorTexto}>
               <textarea
                 id="cq-resp"
-                className="field-input min-h-24"
+                className={`field-input min-h-24 ${errorTexto ? 'field-input-error' : ''}`}
                 value={texto}
-                onChange={(e) => setTexto(e.target.value)}
+                maxLength={2000}
+                onChange={(e) => {
+                  setTexto(e.target.value)
+                  setErrorTexto(undefined)
+                }}
                 placeholder="Escribí la respuesta..."
               />
             </Campo>
@@ -774,8 +842,8 @@ export function SeccionConsultas() {
               <BotonChico onClick={() => setRespondiendo(null)}>Cancelar</BotonChico>
               <BotonChico
                 tono="exito"
-                onClick={() => responder(respondiendo)}
-                disabled={respondiendo_ || !texto.trim()}
+                onClick={() => intentarResponder(respondiendo)}
+                disabled={respondiendo_}
               >
                 Enviar respuesta
               </BotonChico>
@@ -794,6 +862,8 @@ export function SeccionCola() {
   const [filtro, setFiltro] = useState<'esperando' | 'agendado' | ''>('esperando')
   const [agendando, setAgendando] = useState<number | null>(null)
   const [inicio, setInicio] = useState('')
+  const [errorInicio, setErrorInicio] = useState<string | undefined>()
+  const toast = useToast()
 
   const { datos, cargando, recargar } = useCarga(
     () => clinica.cola(filtro || undefined),
@@ -808,11 +878,21 @@ export function SeccionCola() {
   })
 
   const [agendarDeCola, agendando_, errorAgendar] = useAccion(async (id: number) => {
-    await clinica.agendarDesdeCola(id, new Date(inicio).toISOString())
+    const { turno } = await clinica.agendarDesdeCola(id, new Date(inicio).toISOString())
+    toast.mostrar('exito', `Turno asignado a ${turno.paciente} con ${turno.medico_nombre}.`)
     setAgendando(null)
     setInicio('')
     await recargar()
   })
+
+  /** `inicio` viene como `YYYY-MM-DDTHH:mm` (input datetime-local). */
+  function intentarAgendar(id: number) {
+    const problema = inicio
+      ? validarNoPasado(inicio.slice(0, 10), inicio.slice(11, 16))
+      : 'Elegí la fecha y la hora del turno.'
+    setErrorInicio(problema)
+    if (!problema) void agendarDeCola(id)
+  }
 
   const [salir, saliendo, errorSalir] = useAccion(async (id: number) => {
     await clinica.salirDeCola(id)
@@ -843,7 +923,9 @@ export function SeccionCola() {
           entradas={datos ?? []}
           cargando={cargando}
           puedeGestionar
-          onPrioridad={(entrada) => prioridad(entrada.id, entrada.prioridad >= 10 ? 0 : 10)}
+          onPrioridad={(entrada) =>
+            prioridad(entrada.id, esUrgente(entrada) ? PRIORIDAD_NORMAL : PRIORIDAD_URGENTE)
+          }
           onAgendar={(entrada) => {
             setAgendando(entrada.id)
             setInicio('')
@@ -867,16 +949,24 @@ export function SeccionCola() {
                 <input
                   id="cola-inicio"
                   type="datetime-local"
-                  className="field-input w-56"
+                  className={`field-input w-56 ${errorInicio ? 'field-input-error' : ''}`}
                   value={inicio}
-                  onChange={(e) => setInicio(e.target.value)}
+                  onChange={(e) => {
+                    setInicio(e.target.value)
+                    setErrorInicio(undefined)
+                  }}
                 />
+                {errorInicio && (
+                  <p className="mt-1 text-xs" style={{ color: 'var(--color-danger)' }}>
+                    {errorInicio}
+                  </p>
+                )}
               </div>
               <BotonChico onClick={() => setAgendando(null)}>Cancelar</BotonChico>
               <BotonChico
                 tono="exito"
-                onClick={() => agendando !== null && agendarDeCola(agendando)}
-                disabled={agendando_ || !inicio}
+                onClick={() => agendando !== null && intentarAgendar(agendando)}
+                disabled={agendando_}
               >
                 Confirmar turno
               </BotonChico>

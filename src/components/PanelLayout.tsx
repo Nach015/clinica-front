@@ -7,7 +7,7 @@
  * obligaria a tocar el cascaron.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import {
@@ -18,12 +18,14 @@ import {
   LayoutDashboard,
   ListChecks,
   LogOut,
+  Siren,
   Stethoscope,
   Users,
 } from 'lucide-react'
 
 import { useAuth } from '../context/useAuth'
 import type { Rol } from '../lib/types'
+import BotonTema from './BotonTema'
 
 interface Seccion {
   id: string
@@ -41,6 +43,7 @@ interface Seccion {
 const SECCIONES: Record<Rol, Seccion[]> = {
   admin: [
     { id: 'resumen', label: 'Resumen', icono: LayoutDashboard },
+    { id: 'urgencias', label: 'Urgencias', icono: Siren },
     { id: 'especialidades', label: 'Especialidades', icono: ClipboardList },
     { id: 'profesionales', label: 'Profesionales', icono: Users },
     { id: 'agenda', label: 'Agenda', icono: CalendarDays },
@@ -49,6 +52,7 @@ const SECCIONES: Record<Rol, Seccion[]> = {
   ],
   recepcion: [
     { id: 'resumen', label: 'Resumen', icono: LayoutDashboard },
+    { id: 'urgencias', label: 'Urgencias', icono: Siren },
     { id: 'agenda', label: 'Agenda', icono: CalendarDays },
     { id: 'disponibles', label: 'Disponibles', icono: Stethoscope },
     { id: 'consultas', label: 'Consultas', icono: ListChecks },
@@ -79,8 +83,16 @@ export default function PanelLayout({
   const navegar = useNavigate()
   const [saliendo, setSaliendo] = useState(false)
 
+  const secciones = usuario ? (SECCIONES[usuario.rol] ?? []) : []
+  const etiquetaActual = secciones.find((s) => s.id === seccion)?.label
+
+  // El título de la pestaña del navegador dice dónde estás ("Clínica · Urgencias").
+  // Sirve cuando hay varias pestañas abiertas y para el historial.
+  useEffect(() => {
+    document.title = etiquetaActual ? `Clínica · ${etiquetaActual}` : 'Clínica'
+  }, [etiquetaActual])
+
   if (!usuario) return null
-  const secciones = SECCIONES[usuario.rol] ?? []
 
   async function handleLogout() {
     if (saliendo) return
@@ -95,6 +107,14 @@ export default function PanelLayout({
 
   return (
     <div className="min-h-screen">
+      {/* Para quien navega con teclado: salta el menú y va directo al contenido. */}
+      <a
+        href="#contenido"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-40 focus:rounded-md focus:px-3 focus:py-1.5 focus:text-sm"
+        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-heading)' }}
+      >
+        Saltar al contenido
+      </a>
       <header
         className="sticky top-0 z-10 border-b"
         style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
@@ -108,10 +128,11 @@ export default function PanelLayout({
           </div>
 
           <div className="ml-auto flex items-center gap-2">
+            <BotonTema />
             <button
               type="button"
               onClick={() => navegar('/cambiar-contrasena')}
-              className="btn-ghost"
+              className="btn-ghost flex items-center gap-1.5"
               title="Cambiar contraseña"
             >
               <KeyRound size={15} aria-hidden="true" />
@@ -156,7 +177,7 @@ export default function PanelLayout({
         </nav>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-5">
+      <main id="contenido" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-5 outline-none">
         <div className="page-enter flex flex-col gap-4">{children}</div>
       </main>
     </div>

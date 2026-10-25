@@ -13,6 +13,7 @@
 import { Badge, BotonChico, Cargando, Tabla, Td, Th, Vacio } from '../components/ui'
 import { formatearRelativo, formatearRango, tonoEstadoTurno, etiquetaEstadoTurno } from '../lib/fechas'
 import type { Consulta, EntradaCola, EstadoTurno, Turno } from '../lib/types'
+import { esUrgente } from '../lib/urgencias'
 
 /** Que el paciente puede hacer con su turno. */
 export function AccionesDePaciente({
@@ -278,8 +279,8 @@ export function ListaCola({
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Badge tono={entrada.prioridad >= 10 ? 'peligro' : 'neutro'}>
-                {entrada.prioridad >= 10 ? 'Urgente' : 'Normal'}
+              <Badge tono={esUrgente(entrada) ? 'peligro' : 'neutro'}>
+                {esUrgente(entrada) ? 'Urgente' : 'Normal'}
               </Badge>
               <Badge tono={entrada.estado === 'esperando' ? 'info' : 'exito'}>
                 {entrada.estado === 'esperando' ? 'Esperando' : entrada.estado === 'agendado' ? 'Con turno' : 'Descartada'}
@@ -302,7 +303,7 @@ export function ListaCola({
               {puedeGestionar && entrada.estado === 'esperando' && (
                 <>
                   <BotonChico onClick={() => onPrioridad(entrada)}>
-                    {entrada.prioridad >= 10 ? 'Bajar a normal' : 'Marcar urgente'}
+                    {esUrgente(entrada) ? 'Bajar a normal' : 'Marcar urgente'}
                   </BotonChico>
                   <BotonChico tono="exito" onClick={() => onAgendar(entrada)}>
                     Agendar

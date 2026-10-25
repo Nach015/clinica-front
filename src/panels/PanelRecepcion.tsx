@@ -8,11 +8,11 @@
  * de turno, que son las dos cosas que recepción hace y nadie más.
  */
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
+import BuscadorPacientes from '../components/BuscadorPacientes'
 import {
   Aviso,
-  Badge,
   BarraFiltros,
   BotonChico,
   Campo,
@@ -22,16 +22,21 @@ import {
   Select,
   Vacio,
 } from '../components/ui'
+import { useToast } from '../context/useToast'
 import { clinica } from '../lib/api'
 import { aInputDate, formatearRelativo, formatearRango } from '../lib/fechas'
+import { hayErrores, soloConError, validarNoPasado, validarObligatorio, validarTexto } from '../lib/validaciones'
 import { useAccion, useCarga } from '../lib/useCarga'
 import { useConfirmacion } from '../lib/usePanel'
 import type { Especialidad, PacienteBusqueda, ResumenPanel } from '../lib/types'
 import { SeccionAgenda, SeccionCola, SeccionConsultas } from './PanelAdmin'
 import { AccionesDePersonal, TablaTurnos } from './comunes'
+import { AlertaUrgencias, SeccionUrgencias } from './SeccionUrgencias'
 
 export default function PanelRecepcion({ seccion }: { seccion: string }) {
   switch (seccion) {
+    case 'urgencias':
+      return <SeccionUrgencias />
     case 'agenda':
       return <SeccionAgendaRecepcion />
     case 'disponibles':
@@ -57,6 +62,8 @@ function SeccionResumenRecepcion() {
 
   return (
     <>
+      <AlertaUrgencias />
+
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         <Metrica valor={datos?.medicos_libres ?? 0} etiqueta="Profesionales libres" />
         <Metrica valor={datos?.turnos_hoy ?? 0} etiqueta="Turnos hoy" tono="acento" />
@@ -107,28 +114,57 @@ function FormAltaTurno() {
   const [fecha, setFecha] = useState(aInputDate())
   const [hora, setHora] = useState('09:00')
   const [motivo, setMotivo] = useState('')
-  const [exito, setExito] = useState<string | null>(null)
+  const [errores, setErrores] = useState<Record<string, string>>({})
+  const toast = useToast()
 
   const { datos: medicos } = useCarga(() => clinica.medicos({ disponibles: true }), [])
   const { dialogo, pedirConfirmacion } = useConfirmacion()
 
   const [crear, creando, errorCrear] = useAccion(async () => {
-    if (!paciente) throw new Error('Elegí un paciente de la lista.')
+    if (!paciente) return
     const inicio = new Date(`${fecha}T${hora}`)
     const turno = await clinica.crearTurno({
       paciente: paciente.id,
       medico: Number(medicoId),
       inicio: inicio.toISOString(),
-      motivo,
+      motivo: motivo.trim(),
     })
-    setExito(`Turno confirmado para ${turno.paciente} con ${turno.medico_nombre}.`)
+    toast.mostrar('exito', `Turno confirmado para ${turno.paciente} con ${turno.medico_nombre}.`)
     setMotivo('')
     setPaciente(null)
     setBusqueda('')
   })
 
   const medicoElegido = (medicos?.results ?? []).find((m) => m.id === Number(medicoId))
-  const puedeCrear = Boolean(paciente && medicoId && fecha && hora) && !creando
+
+  /** Revisa el formulario completo; solo si está bien se pide la confirmación. */
+  function intentarAgendar() {
+    const encontrados = {
+      paciente: paciente ? undefined : 'Elegí un paciente de la lista.',
+      medico: validarObligatorio(medicoId, 'Elegí un profesional.'),
+      fecha: validarObligatorio(fecha, 'Elegí una fecha.'),
+      hora: validarObligatorio(hora, 'Elegí una hora.'),
+      motivo: validarTexto(motivo, { etiqueta: 'el motivo', max: 200, obligatorio: false }),
+    }
+    // La fecha/hora en el pasado solo se chequea si ambas están completas.
+    const enElPasado = fecha && hora ? validarNoPasado(fecha, hora) : undefined
+    const todos = { ...encontrados, hora: encontrados.hora ?? enElPasado }
+
+    if (hayErrores(todos)) {
+      setErrores(soloConError(todos))
+      return
+    }
+    setErrores({})
+    pedirConfirmacion(
+      `¿Agendar el turno para ${paciente?.nombre} con ${medicoElegido?.nombre_completo}?`,
+      () => crear(),
+    )
+  }
+
+  /** Quita el error de un campo apenas el usuario lo toca. */
+  function limpiar(campo: string) {
+    setErrores((previos) => ({ ...previos, [campo]: '' }))
+  }
 
   return (
     <Card
@@ -162,22 +198,38 @@ function FormAltaTurno() {
                   id="buscar-paciente"
                   className="field-input"
                   value={busqueda}
-                  onChange={(e) => setBusqueda(e.target.value)}
+                  onChange={(e) => {
+                    setBusqueda(e.target.value)
+                    limpiar('paciente')
+                  }}
                   placeholder="Nombre o email del paciente"
                 />
               </div>
               <BuscadorPacientes texto={busqueda} alElegir={setPaciente} />
             </>
           )}
+          {errores.paciente && (
+            <p className="mt-1 text-xs" style={{ color: 'var(--color-danger)' }}>
+              {errores.paciente}
+            </p>
+          )}
         </div>
 
         <div className="grid gap-3 sm:grid-cols-3">
-          <Campo id="turno-medico" label="Profesional" hint="Solo los que están libres.">
+          <Campo
+            id="turno-medico"
+            label="Profesional"
+            hint="Solo los que están libres."
+            error={errores.medico || undefined}
+          >
             <select
               id="turno-medico"
-              className="field-input"
+              className={`field-input ${errores.medico ? 'field-input-error' : ''}`}
               value={medicoId}
-              onChange={(e) => setMedicoId(e.target.value)}
+              onChange={(e) => {
+                setMedicoId(e.target.value)
+                limpiar('medico')
+              }}
             >
               <option value="">Elegir...</option>
               {(medicos?.results ?? []).map((medico) => (
@@ -187,30 +239,38 @@ function FormAltaTurno() {
               ))}
             </select>
           </Campo>
-          <Campo id="turno-fecha" label="Fecha">
+          <Campo id="turno-fecha" label="Fecha" error={errores.fecha || undefined}>
             <input
               id="turno-fecha"
               type="date"
-              className="field-input"
+              className={`field-input ${errores.fecha ? 'field-input-error' : ''}`}
               value={fecha}
-              onChange={(e) => setFecha(e.target.value)}
+              min={aInputDate()}
+              onChange={(e) => {
+                setFecha(e.target.value)
+                limpiar('fecha')
+                limpiar('hora')
+              }}
             />
           </Campo>
-          <Campo id="turno-hora" label="Hora">
+          <Campo id="turno-hora" label="Hora" error={errores.hora || undefined}>
             <input
               id="turno-hora"
               type="time"
-              className="field-input"
+              className={`field-input ${errores.hora ? 'field-input-error' : ''}`}
               value={hora}
-              onChange={(e) => setHora(e.target.value)}
+              onChange={(e) => {
+                setHora(e.target.value)
+                limpiar('hora')
+              }}
             />
           </Campo>
         </div>
 
-        <Campo id="turno-motivo" label="Motivo de consulta">
+        <Campo id="turno-motivo" label="Motivo de consulta" error={errores.motivo || undefined}>
           <input
             id="turno-motivo"
-            className="field-input"
+            className={`field-input ${errores.motivo ? 'field-input-error' : ''}`}
             value={motivo}
             onChange={(e) => setMotivo(e.target.value)}
             maxLength={200}
@@ -219,20 +279,9 @@ function FormAltaTurno() {
         </Campo>
 
         {errorCrear && <Aviso>{errorCrear}</Aviso>}
-        {exito && <Aviso tipo="exito">{exito}</Aviso>}
 
         <div className="flex justify-end">
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={!puedeCrear}
-            onClick={() =>
-              pedirConfirmacion(
-                `¿Agendar el turno para ${paciente?.nombre} con ${medicoElegido?.nombre_completo}?`,
-                () => crear(),
-              )
-            }
-          >
+          <button type="button" className="btn-primary btn-auto" disabled={creando} onClick={intentarAgendar}>
             {creando ? 'Agendando...' : 'Agendar turno'}
           </button>
         </div>
@@ -240,121 +289,6 @@ function FormAltaTurno() {
 
       {dialogo}
     </Card>
-  )
-}
-
-/**
- * Buscador con resultados.
- *
- * La búsqueda va al backend recién con dos caracteres o más: el endpoint corta
- * antes para no devolver media base. Se pide con un debounce porque cada tecla
- * sería un request.
- *
- * Los resultados se guardan junto con la consulta que los produjo y se derives
- * en el render, en vez de limpiar con `setState` dentro del efecto: si no, hay
- * un render de más en cada tecla y React avisa.
- */
-function BuscadorPacientes({
-  texto,
-  alElegir,
-}: {
-  texto: string
-  alElegir: (paciente: PacienteBusqueda) => void
-}) {
-  const [consulta, setConsulta] = useState('')
-  const [respuesta, setRespuesta] = useState<{ q: string; datos: PacienteBusqueda[] } | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  // Debounce: 350 ms alcanza para no disparar un request por tecla sin hacer
-  // esperar lo suficiente como para que el tipeo se sienta lento.
-  useEffect(() => {
-    if (texto.trim().length < 2) return
-    const id = setTimeout(() => setConsulta(texto.trim()), 350)
-    return () => clearTimeout(id)
-  }, [texto])
-
-  useEffect(() => {
-    if (!consulta) return
-    let vigente = true
-    clinica
-      .buscarPacientes(consulta)
-      .then((datos) => {
-        if (vigente) {
-          setRespuesta({ q: consulta, datos })
-          setError(null)
-        }
-      })
-      .catch(() => {
-        if (vigente) setError('No se pudo buscar. Probá de nuevo.')
-      })
-    return () => {
-      vigente = false
-    }
-  }, [consulta])
-
-  const habilitado = texto.trim().length >= 2
-  // Mientras la respuesta no corresponde a la consulta vigente, se muestra
-  // "buscando". Se deriva en vez de llevar otro estado que hay que acordarse de
-  // bajar en el `finally`.
-  const buscando = habilitado && respuesta?.q !== consulta
-  const resultados = respuesta?.q === consulta ? respuesta.datos : []
-  const mostro = habilitado && resultados.length > 0
-
-  return (
-    <div className="mt-2 flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          className="btn-ghost"
-          onClick={() => {
-            setConsulta(texto.trim())
-            setError(null)
-          }}
-          disabled={!habilitado}
-        >
-          Buscar
-        </button>
-        {buscando && (
-          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            Buscando...
-          </span>
-        )}
-        {!habilitado && (
-          <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            Escribí al menos 2 letras.
-          </span>
-        )}
-      </div>
-
-      {error && <Aviso>{error}</Aviso>}
-
-      {habilitado && !mostro && !buscando && !error && (
-        <Vacio titulo="Sin resultados" descripcion="Probá con otra parte del nombre o del email." />
-      )}
-
-      {mostro && (
-        <ul className="flex flex-col gap-1">
-          {resultados.map((p) => (
-            <li key={p.id}>
-              <button
-                type="button"
-                onClick={() => alElegir(p)}
-                className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left hover:opacity-80"
-                style={{ borderColor: 'var(--color-border)' }}
-              >
-                <span>
-                  <span className="text-sm font-medium">{p.nombre}</span>
-                  <span className="ml-2 text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                    {p.email}
-                  </span>
-                </span>
-                {!p.email_verificado && <Badge tono="peligro">Sin verificar</Badge>}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
   )
 }
 

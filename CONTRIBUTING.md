@@ -13,10 +13,15 @@ Flujo: `feature/...` → PR a `develop` → `main` en cada release.
 ```bash
 pnpm lint
 pnpm typecheck
+pnpm test
 pnpm build
 ```
 
-Los tres tienen que pasar limpios. Un PR que rompe el build no entra.
+Los cuatro tienen que pasar limpios. Un PR que rompe el build o una prueba no entra.
+
+`pnpm test` corre las pruebas automáticas (Vitest). Cada archivo `algo.test.ts(x)`
+vive al lado de lo que prueba. Si agregás una validación, una pantalla o una regla
+nueva, agregá su prueba. `pnpm test:watch` las vuelve a correr al guardar.
 
 ## Commits
 
@@ -33,7 +38,7 @@ Tipos que usamos: `Add`, `Fix`, `Refactor`, `Test`, `Docs`, `Chore`.
 
 - **`.env` nunca se commitea.** Todo lo que empieza con `VITE_` va dentro del
   bundle, o sea que es público: no va ninguna clave real en un `VITE_`.
-- **El access token solo vive en memoria** (`src/utils/session.ts`). No va a
+- **El access token solo vive en memoria** (`src/lib/session.ts`). No va a
   `localStorage`: un XSS lo leería. El refresh es una cookie HttpOnly que
   maneja el back, y no hay que tocarla desde acá.
 - **`dev_code` solo aparece sin SMTP.** Con SMTP configurado viene en `null` y

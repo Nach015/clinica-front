@@ -5,7 +5,9 @@ import AuthLayout from '../components/AuthLayout'
 import { Aviso, Campo, Spinner } from '../components/ui'
 import { useAuth } from '../context/useAuth'
 import { api } from '../lib/api'
+import { mensajeDeError } from '../lib/errores'
 import { ApiError, type RespuestaSesion } from '../lib/types'
+import { hayErrores, soloConError, validarEmail, validarObligatorio } from '../lib/validaciones'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -24,6 +26,19 @@ export default function Login() {
   async function enviar(e: FormEvent) {
     e.preventDefault()
     setError(null)
+
+    // Se revisa antes de molestar al servidor: un email sin arroba no necesita
+    // viaje de red para saber que está mal (y cada intento cuenta para el límite
+    // de 10 logins por 15 minutos del back).
+    const encontrados = {
+      email: validarEmail(email),
+      password: validarObligatorio(password, 'Escribí tu contraseña.'),
+    }
+    if (hayErrores(encontrados)) {
+      setErrorCampo(soloConError(encontrados))
+      return
+    }
+
     setErrorCampo({})
     setCargando(true)
 
@@ -50,7 +65,7 @@ export default function Login() {
           password: err.mensajePorCampo('password') ?? '',
         })
       } else {
-        setError('No se pudo conectar con el servidor.')
+        setError(mensajeDeError(err, 'No se pudo iniciar sesión. Probá de nuevo.'))
       }
     } finally {
       setCargando(false)
@@ -77,7 +92,10 @@ export default function Login() {
             type="email"
             className={`field-input ${errorCampo.email ? 'field-input-error' : ''}`}
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => {
+              setEmail(e.target.value)
+              setErrorCampo((previos) => ({ ...previos, email: '' }))
+            }}
             placeholder="ana@correo.com"
             autoComplete="email"
             required
@@ -91,7 +109,10 @@ export default function Login() {
             type="password"
             className={`field-input ${errorCampo.password ? 'field-input-error' : ''}`}
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => {
+              setPassword(e.target.value)
+              setErrorCampo((previos) => ({ ...previos, password: '' }))
+            }}
             placeholder="••••••••"
             autoComplete="current-password"
             required

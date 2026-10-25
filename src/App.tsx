@@ -11,8 +11,10 @@
 
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 
+import ErrorBoundary from './components/ErrorBoundary'
 import RutaPrivada from './components/RutaPrivada'
 import { AuthProvider } from './context/AuthProvider'
+import { ToastProvider } from './context/ToastProvider'
 import { useAuth } from './context/useAuth'
 import ChangePassword from './pages/ChangePassword'
 import Login from './pages/Login'
@@ -37,35 +39,39 @@ function Raiz() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <Routes>
-          <Route path="/" element={<Raiz />} />
+    <ErrorBoundary>
+      <BrowserRouter>
+        <AuthProvider>
+          <ToastProvider>
+            <Routes>
+              <Route path="/" element={<Raiz />} />
 
-          <Route path="/login" element={<Login />} />
-          <Route path="/registro" element={<Register />} />
-          <Route path="/verificar" element={<VerifyEmail />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/registro" element={<Register />} />
+              <Route path="/verificar" element={<VerifyEmail />} />
 
-          <Route
-            path="/cambiar-contrasena"
-            element={
-              <RutaPrivada>
-                <ChangePassword />
-              </RutaPrivada>
-            }
-          />
-          <Route
-            path="/app"
-            element={
-              <RutaPrivada>
-                <Main />
-              </RutaPrivada>
-            }
-          />
+              <Route
+                path="/cambiar-contrasena"
+                element={
+                  <RutaPrivada>
+                    <ChangePassword />
+                  </RutaPrivada>
+                }
+              />
+              <Route
+                path="/app"
+                element={
+                  <RutaPrivada>
+                    <Main />
+                  </RutaPrivada>
+                }
+              />
 
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </AuthProvider>
-    </BrowserRouter>
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </ToastProvider>
+        </AuthProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   )
 }
